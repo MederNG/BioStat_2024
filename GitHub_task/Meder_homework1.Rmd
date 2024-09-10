@@ -1,0 +1,87 @@
+---
+title: "RMD notebook"
+author: "Meder Imanaliev"
+date: "2024-09-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(psych)
+library(dplyr)
+library(tidyr)
+library(stringi)
+library(tibble)
+library(ggplot2)
+library(readr)
+library(readxl)
+```
+
+getwd()
+setwd("C:/Users/meder/OneDrive/Desktop/biostat/")
+
+#Базовые статистики
+
+mean(c(20, 68, 45, 76, 41, 36, 13, 52, 77, 53, 70, 73))
+median(c(30, 87, 55, -71, 93, 50, 34, -51, 13, 96, -62, 53, -85))
+min(c(13, 50, 44, 37, 20, 29, -8, 4, 45, 31, 47, -5, -2, 24, 17, 45, 44, 31, -5, 26))
+max(c(13, 50, 44, 37, 20, 29, -8, 4, 45, 31, 47, -5, -2, 24, 17, 45, 44, 31, -5, 26))
+quantile(c(31.83, 45.12, 55.66, 67.76, 25.73, 42.87, 55.22, 44.92, 48.03, 41.37, 66.26, 114.02, 32.93))
+sd(c(65.14, 49.87, 34.11, 43.23, 35.72, 35.73, 70.86))
+length(1:10)
+
+#серъезная работа с dataframe
+
+ data <- read_tsv("data_tsv.tsv", skip = 0, n_max = Inf)
+
+data %>%
+  select("Группа крови", "Рост")
+ 
+data %>%
+  select(contains("_E1"))
+
+data %>%
+  select(where(is.numeric)) %>%
+  select(where(function(x) sd(x, na.rm = TRUE) > 2 & mean(x, na.rm = TRUE) < 10))
+
+data %>%
+  select(`Пол`, `Эритроциты_E1`, everything())
+
+data %>%
+slice (1:10)
+
+data %>%
+slice_head(n=10)
+
+data %>%
+slice_tail(prop=0.1)
+
+data %>%
+arrange("Рост")
+
+data %>%
+  select(`Группа`, contains("E1")) %>%
+  pivot_longer(!`Группа`)
+
+statistics <- list(
+      `Количество субъектов` = ~length(.x),
+      `Количество (есть данные)` = ~sum(!is.na(.x)),
+      `Нет данных` = ~sum(is.na(.x)),
+      `Ср. знач.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", mean(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `Станд. отклон.` = ~ifelse(sum(!is.na(.x)) < 3, "Н/П*", sd(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `95% ДИ для среднего` = ~sd(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `мин. - макс.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(min(.x, na.rm = TRUE) %>% round(2), " - ", max(.x, na.rm = TRUE) %>% round(2))),
+      `Медиана` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", median(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `Q1 - Q3` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), " - ", quantile(.x, 0.75, na.rm = TRUE) %>% round(2)))
+)
+
+
+data %>%
+  select('Группа', where(is.numeric)) %>%
+  group_by('Группа') %>%
+  summarise(across(where(is.numeric), statistics)) %>%
+  pivot_longer(!'Группа', values_drop_na = TRUE) %>%
+  separate(name, into = c("Переменная", "Статистика"), sep = "__") %>%
+  rename('Значение' = value)
+
