@@ -84,4 +84,6 @@ data %>%
   pivot_longer(!'Группа', values_drop_na = TRUE) %>%
   separate(name, into = c("Переменная", "Статистика"), sep = "__") %>%
   rename('Значение' = value)
+  
+  #������ ������
 
