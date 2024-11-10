@@ -1,0 +1,185 @@
+---
+title: "Basic visualization"
+author: "Meder Imanaliev muggle:("
+date: "2024-09-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+library(ggplot2)
+library(dplyr)
+
+df <- read.csv("hogwarts_2024.csv")
+df <- df %>%
+  mutate_at(vars(id, house, course, sex, wandCore, bloodStatus), as.factor)
+
+# Столбчатые диаграммы
+
+#Построение барплота распределения студентов по курсам
+ggplot(df, aes(x = factor(course))) +
+  geom_bar(fill = "#FF6347", color = "black") + # Цвет заливки и контура
+  theme_minimal() + # Применение темы
+  labs(title = "Распределение студентов по курсу обучения",
+       x = "Курс обучения", 
+       y = "Количество студентов")
+
+#Барплот с распределением по факультетам и чистоте крови
+ggplot(df, aes(x = house, fill = bloodStatus)) +
+  geom_bar(position = "fill", color = "black") + 
+  theme_classic() + 
+  labs(title = "Распределение студентов по факультетам и чистоте крови",
+       x = "Факультет", 
+       y = "Доля")
+#Вывод:
+График показывает, как студенты разных кровных статусов (чистокровные, полукровные, маглорожденные) распределяются между факультетами.На некоторых факультетах преобладают чистокровные студенты, в то время как на других факультетах больше маглорожденных.Такое распределение может говорить о социальном влиянии и традициях каждого факультета. Например, если на факультете много чистокровных студентов, это может быть связано с его культурой и историей, которая привлекает таких студентов.
+
+
+
+#Фильтрация только чистокровных и маглорожденных
+df_filtered <- df %>%
+  filter(bloodStatus %in% c("pure-blood", "muggle-born"))
+
+
+ggplot(df_filtered, aes(x = house, fill = bloodStatus)) +
+  geom_bar(position = "fill", color = "black") + # Столбцы в долях
+  theme_light() + # Применение темы
+  labs(title = "Распределение студентов по факультетам и чистоте крови",
+       x = "Факультет", 
+       y = "Доля") +
+  scale_fill_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c"), 
+                    labels = c("pure-blood" = "Чистокровные", "muggle-born" = "Маглорожденные")) + # Переименование категорий
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") # Добавление горизонтальной линии
+  
+# Боксплоты
+
+#Построение боксплота для 3-й недели обучения по факультетам
+ggplot(df, aes(x = reorder(house, -`week_3`), y = week_3)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Распределение баллов на 3-й неделе по факультетам",
+       x = "Факультет", 
+       y = "Баллы на 3-й неделе")
+       
+#Добавляем цвета по происхождению и вырезку (notch)
+ggplot(df, aes(x = reorder(house, -`week_3`), y = week_3, fill = bloodStatus)) +
+  geom_boxplot(notch = TRUE) + # Добавляем вырезку
+  theme_minimal() +
+  labs(title = "Распределение баллов на 3-й неделе по факультетам",
+       x = "Факультет", 
+       y = "Баллы на 3-й неделе") +
+  scale_fill_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c", "half-blood" = "#e31a1c")) # Цвета для происхождения
+  
+#Добавляем джиттер-плот, удаляем выбросы и настраиваем ширину и толщину
+
+ggplot(df, aes(x = reorder(house, -`week_3`), y = week_3, fill = bloodStatus)) +
+  geom_boxplot(notch = TRUE, outlier.shape = NA, lwd = 1.2, width = 0.6) + # Убираем выбросы, настраиваем толщину и ширину
+  geom_jitter(aes(color = bloodStatus), width = 0.2, size = 1.5, alpha = 0.6) + # Добавляем джиттер-плот
+  theme_minimal() +
+  labs(title = "Распределение баллов на 3-й неделе с учетом происхождения",
+       x = "Факультет", 
+       y = "Баллы на 3-й неделе",
+       caption = "Источник данных: Hogwarts 2024") + # Добавляем подпись
+  scale_fill_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c", "half-blood" = "#e31a1c")) +
+  scale_color_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c", "half-blood" = "#e31a1c")) # Цвета для джиттера
+
+# Разное
+
+#Фильтруем студентов 5-го курса
+df_5th_course <- df %>% filter(course == 5)
+
+#Сумма всех баллов для студентов за год
+df_5th_course <- df_5th_course %>%
+  mutate(total_score = rowSums(select(., starts_with("week_")))) %>% # суммируем все недельные баллы
+  arrange(desc(total_score)) # сортируем по убыванию
+
+#Цвета для разных сердцевин волшебных палочек
+wand_colors <- c("dragon heartstring" = "red", "phoenix feather" = "yellow", "unicorn hair" = "gray")
+
+#Построение леденцового графика
+ggplot(df_5th_course, aes(x = total_score, y = reorder(id, total_score), color = wandCore)) +
+  geom_segment(aes(xend = 0, yend = reorder(id, total_score)), size = 1.2) +
+  geom_point(size = 4) +
+  scale_color_manual(values = wand_colors) +
+  theme_minimal() +
+  labs(title = "Леденцовый график для студентов 5-го курса",
+       x = "Итоговый балл",
+       y = "ID студента",
+       color = "Сердцевина волшебной палочки")
+
+#Гистограмма распределения баллов за экзамен по астрономии с выделением Слизерина
+
+ggplot(df, aes(x = `Astronomy.exam`, fill = house)) +
+  geom_histogram(binwidth = 10, color = "black") +
+  scale_fill_manual(values = c("Slytherin" = "green", "Gryffindor" = "gray", "Hufflepuff" = "gray", "Ravenclaw" = "gray")) +
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 22),
+        axis.title.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        axis.text = element_text(size = 18),
+        legend.text = element_text(size = 18)) +
+  labs(title = "Распределение баллов за экзамен по астрономии",
+       x = "Баллы за экзамен по астрономии",
+       y = "Number of students",
+       fill = "Факультет")
+
+
+#Создание кастомной темы
+theme_custom <- function() {
+  theme(
+    panel.background = element_rect(fill = "white", color = NA), # Белый фон
+    plot.background = element_rect(fill = "white", color = NA),  # Белый фон
+    axis.title = element_text(size = 20),  # Увеличение размера шрифта на осях
+    axis.text = element_text(size = 18),   # Увеличение размера шрифта для значений на осях
+    legend.title = element_text(size = 20), # Увеличение размера шрифта в легенде
+    legend.text = element_text(size = 18),  # Увеличение шрифта текста в легенде
+    panel.grid.major = element_line(color = "gray90"), # Легкие серые линии сетки
+    panel.grid.minor = element_line(color = "gray95")
+  )
+}
+
+#Применение темы к предыдущему боксплоту с отключенными вырезками
+ggplot(df, aes(x = reorder(house, -week_3), y = week_3, fill = bloodStatus)) +
+  geom_boxplot(notch = FALSE, outlier.shape = NA, lwd = 1.2, width = 0.6) + # Отключаем вырезки
+  geom_jitter(aes(color = bloodStatus), width = 0.2, size = 1.5, alpha = 0.6) +
+  theme_custom() + # Применение новой кастомной темы
+  labs(title = "Распределение баллов на 3-й неделе с учетом происхождения",
+       x = "Факультет", 
+       y = "Баллы на 3-й неделе",
+       caption = "Источник данных: Hogwarts 2024") +
+  scale_fill_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c", "half-blood" = "#e31a1c")) +
+  scale_color_manual(values = c("pure-blood" = "#1f78b4", "muggle-born" = "#33a02c", "half-blood" = "#e31a1c"))
+
+
+# Фасетироваие
+
+Для гистограммы фасетирование по столбцам предпочтительнее, так как проще сравнивать высоту столбцов (частоты) между подгруппами. Гистограммы, выстроенные рядом, легче воспринимать, сравнивая их по ширине и высоте.
+
+Для violin-плотов лучше фасетировать по строкам, так как эти графики показывают распределение данных по оси Y. Расположение по строкам позволяет легче оценивать симметрию и форму плотностей, предоставляя больше места для каждого графика.
+
+Общее правило: Для графиков, отображающих распределение по высоте (гистограммы, плотности, боксплоты), лучше фасетировать по столбцам. Для графиков с плотностью распределения по оси Y (violin-плоты) лучше использовать строки.
+
+#Гистограмма для результатов экзамена по защите от темных искусств с фасетированием по курсу
+ggplot(df, aes(x = `Defence.against.the.dark.arts.exam`)) +
+  geom_histogram(bins = 20, fill = "blue", color = "black") + # Оптимальное число столбцов
+  facet_wrap(~ course, ncol = 3) + # Фасетирование по курсу
+  theme_minimal() +
+  labs(title = "Распределение баллов за экзамен по защите от темных искусств",
+       x = "Баллы за экзамен",
+       y = "Количество студентов")
+
+#Плотность вероятности для экзаменов по защите от темных искусств и травологии с фасетированием по полу
+ggplot(df) +
+  geom_density(aes(x = `Defence.against.the.dark.arts.exam`, fill = "Защита от темных искусств"), alpha = 0.5) + # Плотность для защиты
+  geom_density(aes(x = `Herbology.exam`, fill = "Травология"), alpha = 0.5) + # Плотность для травологии
+  facet_wrap(~ sex) + # Фасетирование по полу
+  theme_custom() + # Применение кастомной темы
+  scale_fill_manual(values = c("Защита от темных искусств" = "blue", "Травология" = "green")) + # Настройка цветов
+  labs(title = "Распределение баллов за экзамены по защите от темных искусств и травологии",
+       x = "Баллы за экзамен",
+       y = "Плотность",
+       fill = "Предмет")
+

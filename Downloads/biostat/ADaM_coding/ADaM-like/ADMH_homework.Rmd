@@ -1,0 +1,88 @@
+---
+title: "ADMH_programming"
+author: "Meder Imanaliev"
+date: "2024-11-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(anytime)
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(lubridate)
+```
+
+```{r}
+adsl <- read.xlsx("ADaM-like/ADSL.xlsx")
+mh <- read.xlsx("SDTM/MH_MEDICALHISTORY.xlsx")
+
+adsl %>%
+  glimpse()
+
+mh %>% 
+  glimpse()
+```
+
+```{r}
+adsl_new <- adsl %>%
+  select(SUBJID, STUDYID, USUBJID, TRTP, TRTPN) %>%
+  filter(TRTP %in% c("XXXX0", "XXXX1")) %>%
+  mutate(TRTPN = as.integer(TRTPN))
+
+adsl_new %>%
+  glimpse()
+
+```
+
+```{r}
+mh_new <- mh %>%
+  select(SUBJID, MHSEQ, MHCAT, MHTERM, MHDECOD, MHBODSYS, MHSTDTC, MHENDTC, MHENRTPT) %>%
+  filter(MHCAT == "Medical History") %>%
+  mutate(
+    MHSEQ = as.integer(MHSEQ),
+    
+    ASTDT = case_when(
+      !is.na(MHSTDTC) ~ format(anydate(MHSTDTC), "%d.%m.%Y"),
+      TRUE ~ NA_character_
+    ),
+    
+    ASTDTF = case_when(
+      is.na(ASTDT) ~ "Y",
+      nchar(MHSTDTC) == 7 ~ "M",
+      nchar(MHSTDTC) == 4 ~ "Y",
+      TRUE ~ NA_character_
+    ),
+    
+    AENDT = case_when(
+      MHENRTPT == 'ONGOING' ~ NA_character_,
+      !is.na(MHENDTC) ~ format(anydate(MHENDTC), "%d.%m.%Y"),
+      TRUE ~ NA_character_
+    ),
+    
+    AENDTF = case_when(
+      is.na(AENDT) ~ "Y",
+      nchar(MHENDTC) == 7 ~ "M",
+      nchar(MHENDTC) == 4 ~ "Y",
+      TRUE ~ NA_character_
+    ),
+    
+    MHENRF = ifelse(MHENRTPT == 'ONGOING', "ONGOING", NA_character_)
+  )
+
+mh_new %>% 
+  glimpse()
+
+```
+
+```{r}
+ADMH <- left_join(adsl_new, mh_new, by = c("SUBJID" = "SUBJID")) %>% 
+  select(STUDYID, USUBJID, TRTP, TRTPN, MHSEQ, MHCAT, MHTERM, MHDECOD, 
+         MHBODSYS, MHSTDTC, ASTDT, ASTDTF, MHENDTC, AENDT, AENDTF, MHENRTPT, MHENRF) %>% 
+  filter(!is.na(MHTERM))
+
+write.xlsx(ADMH, "ADaM-like/ADMH.xlsx", overwrite = TRUE)
+
+```
