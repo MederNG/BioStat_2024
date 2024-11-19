@@ -1,0 +1,649 @@
+---
+title: "Advance_DataViz_HW"
+author: "Meder Imanaliev"
+date: "2024-11-17"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(skimr)
+library(ggpubr)
+library(factoextra)
+library(FactoMineR)
+library(corrplot)
+library(GGally)
+library(rstatix)
+library(pheatmap)
+library(heatmaply)
+library(cluster)
+library(tidymodels)
+library(embed)
+library(umap)
+library(plotly)
+library(naniar)
+library(ggbiplot)
+library(reshape2)
+library(corrr)
+library(ggbiplot)
+library(patchwork)
+```
+
+
+## Задание 1
+```{r}
+
+data <- readRDS("very_low_birthweight.RDS")
+data <- data %>%
+  mutate(id = row_number()) %>%
+  select(id, everything())
+
+data_cleaned <- data %>%
+  select(where(~ sum(is.na(.)) <= 100)) %>%
+  drop_na() %>%
+    mutate(across(c(twn, vent, pneumo, pda, cld, dead), as.factor)) %>%
+    mutate(hospstay = as.numeric(hospstay))
+
+theme_custom <- theme(
+  panel.background = element_rect(fill = "white", color = "black"),
+  panel.grid.major = element_line(color = "grey"),
+  panel.grid.minor = element_blank(),
+  axis.title = element_text(size = 15),
+  axis.text = element_text(size = 12),
+  axis.line = element_line(color = "black"),
+  plot.title = element_text(size = 15, face = "bold", hjust = 0.5, color = "#2c2c2c"),
+  axis.text.x = element_text(size = 14, angle = 60, hjust = 1),
+  axis.text.y = element_text(size = 14),
+  strip.text = element_text(size = 16, face = "bold"),
+  legend.background = element_rect(fill = "white", color = "black"),
+  legend.key = element_rect(fill = "white"),
+  legend.position = "top"
+)
+```
+
+
+## Задание 2.1
+```{r, fig.width = 10, fig.height = 6}
+
+data_cleaned <- data_cleaned %>%
+  mutate(across(where(is.numeric), ~ ifelse(
+    . < quantile(., 0.25, na.rm = TRUE) - 1.5 * IQR(., na.rm = TRUE) |
+      . > quantile(., 0.75, na.rm = TRUE) + 1.5 * IQR(., na.rm = TRUE),
+    NA, .
+  ))) %>%
+  drop_na() %>%
+  mutate(across(where(is.character), as.factor))
+
+numeric_vars <- data_cleaned %>%
+  select(where(is.numeric), -id)
+
+numeric_vars %>%
+  select(where(is.numeric)) %>% 
+  reshape2::melt() %>%
+  ggplot(aes(x = value, fill = variable)) +
+  geom_density(alpha = 0.5, colour = "grey49") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(
+    title = "Плотность числовых переменных",
+    x = "Значение",
+    y = "Плотность",
+    fill = "Переменная"
+  ) +
+  theme_custom
+```
+
+## Задание 2.2
+```{r, fig.width = 12, fig.height = 6}
+
+data_cleaned %>%
+  select(inout, bwt, gest) %>%
+  reshape2::melt(id.vars = "inout") %>%
+  ggplot(aes(x = value, fill = inout)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ variable, scales = "free") +
+  labs(
+    title = "Плотности веса при рождении и гестационного возраста по In/Out",
+    x = "Значение",
+    y = "Плотность",
+    fill = "In/Out"
+  ) +
+  theme_custom 
+```
+
+## Задание 3
+```{r, fig.width = 12, fig.height = 6, warning=FALSE}
+
+test_results <- data_cleaned %>%
+  rstatix::t_test(lowph ~ inout, var.equal = FALSE) %>%
+  add_significance()
+
+ggbarplot(
+  data_cleaned, 
+  x = "inout", 
+  y = "lowph", 
+  add = c("mean_se", "jitter"),  
+  fill = "inout", 
+  color = "black",
+  palette = "Dark2",
+  width = 0.3
+) +
+  geom_hline(
+    yintercept = mean(data_cleaned$lowph, na.rm = TRUE), 
+    linetype = "dashed", 
+    color = "gray50", 
+    size = 1
+  ) +
+  stat_pvalue_manual(
+    test_results, 
+    label = "p = {p}",
+    y.position = max(data_cleaned$lowph, na.rm = TRUE) + 0.5, 
+    size = 5,  
+    color = "black"
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(data_cleaned$lowph, na.rm = TRUE) + 1), 
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  labs(
+    title = "Средние значения lowph по группам",
+    x = "Группа", 
+    y = "lowph"
+  ) +
+  theme_custom
+```
+
+Можно сделать вывод, что дети, доставленные в госпиталь из других мест, могут иметь более высокий уровень смертности.
+
+
+## Задание 4 (континуальные переменные)
+```{r, fig.width = 12, fig.height = 6, warning=FALSE}
+
+cont_data <- data_cleaned %>%
+  select(where(is.numeric)) %>%
+  select(-birth, -year, -exit, -id)
+
+correlation_matrix <- cor(cont_data, use = "complete.obs", method = "spearman")
+
+
+print(correlation_matrix)
+
+pheatmap(
+  correlation_matrix, 
+  display_numbers = TRUE, 
+  color = colorRampPalette(c("lightblue", "white", "red"))(50), 
+  main = "Тепловая карта корреляционной матрицы"
+)
+
+correlation_matrix %>%
+  network_plot(min_cor = .0,
+               legend ="full", 
+               colors = c("red", "white", "blue")) +
+  labs(title = "Сетевой график корреляций") +
+  theme_custom
+```
+
+
+## Задание 5
+```{r, fig.width = 12, fig.height = 6, warning=FALSE}
+
+scaled_data <- cont_data %>%
+  scale()
+
+distance_matrix <- dist(scaled_data, method = "euclidean")
+
+hclust_model <- hclust(distance_matrix, method = "ward.D2")  
+
+k <- 4
+
+fviz_dend(
+  hclust_model, 
+  k = k,
+  rect = TRUE,
+  rect_border = "jco",
+  rect_fill = TRUE,
+  cex = 0.8,  
+  main = "Дендрограмма иерархической кластеризации"
+)
+```
+
+
+## Задание 6
+```{r, fig.width = 12, fig.height = 6, warning=FALSE}
+
+pheatmap(
+  scaled_data, 
+  clustering_distance_rows = "euclidean", 
+  clustering_distance_cols = "euclidean", 
+  clustering_method = "ward.D2",
+  color = colorRampPalette(c("blue", "white", "red"))(50),
+  main = "Heatmap с иерархической кластеризацией",
+  scale = "row",
+  display_numbers = FALSE,
+  fontsize_row = 10,
+  fontsize_col = 10
+)
+```
+
+Интерпретация: Более высокий гестационный возраст (gest) связан с более высоким весом при рождении (bwt), что соответствует медицинским фактам. Недоношенные дети имеют меньший вес, что подтверждается на графике. Длительность госпитализации (hospstay) зависит от комплексного набора факторов, таких как вес при рождении (bwt), гестационный возраст (gest), и состояние ребенка (lowph, apg1). Дети с низким bwt и gest, как правило, госпитализируются на более длительный срок, что подтверждается красными зонами тепловой карты.
+
+
+## Задание 7
+```{r, fig.width = 12, fig.height = 8, warning=FALSE}
+
+pca_data <- prcomp(cont_data,scale = TRUE)
+
+summary(pca_data)
+
+fviz_eig(pca_data, addlabels = TRUE, ylim = c(0, 50), main = "Доля объяснённой дисперсии")
+
+fviz_contrib(pca_data, choice = "var", axes = 1, top = 24)
+fviz_contrib(pca_data, choice = "var", axes = 2, top = 24)
+fviz_contrib(pca_data, choice = "var", axes = 3, top = 24)
+
+fviz_pca_var(
+  pca_data, 
+  col.var = "contrib",
+  repel = TRUE,
+  title = "График переменных PCA"
+)
+
+fviz_pca_ind(
+  pca_data, 
+  geom = "point", 
+  col.ind = "cos2",
+  repel = TRUE,
+  title = "График наблюдений PCA"
+)
+```
+
+Интерпретация: Первая компонента (Dim1) объясняет 41.8% дисперсии данных, вторая --- 18.9%, третья --- 13.2%. В сумме первые три компоненты объясняют 73.9% общей дисперсии, что свидетельствует о том, что они хорошо представляют исходные данные. Значительное снижение дисперсии после третьей компоненты говорит о том, что для анализа можно сосредоточиться на первых трёх компонентах.
+
+Переменные bwt (вес при рождении) и gest (гестационный возраст) вносят наибольший вклад в первую компоненту. Это указывает на то, что первая компонента в основном отражает характеристики, связанные с физическими параметрами при рождении.
+
+Вторая компонента в значительной степени определяется переменной pltct (количество тромбоцитов), которая вносит около 50% вклада. Она отражает характеристики, связанные с состоянием здоровья.
+
+Третья компонента определяется переменной apg1 (оценка по шкале Апгар на первой минуте), которая вносит около 50% вклада. Это может свидетельствовать о том, что она отражает показатели здоровья ребенка при рождении.
+
+Судя по графику переменных PCA bwt и gest имеют близкие направления, что подтверждает их положительную корреляцию. pltct и apg1 имеют небольшую корреляцию с другими переменными.
+
+Применение шкалирования было необходимо, так как переменные имели разные единицы измерения (например, вес в граммах и тромбоциты в единицах).
+
+
+## Задание 8
+```{r, fig.width = 8, fig.height = 8, warning=FALSE}
+
+ ggbiplot(pca_data, 
+         scale=0, 
+         groups = data_cleaned$dead, 
+         ellipse = T,
+         alpha = 0.4) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(
+    title = "PCA Biplot",
+  ) +
+  theme_custom
+```
+
+
+## Задание 9
+```{r, fig.width = 8, fig.height = 8, warning=FALSE}
+
+data_id <- cont_data %>% 
+  mutate(id = as.integer(row_number()))
+
+biplot <- ggbiplot(
+  pca_data, 
+  scale = 0, 
+  groups = data_cleaned$dead, 
+  ellipse = TRUE, 
+  alpha = 0.4
+) +
+  geom_point(
+    aes(text = paste("ID:", data_id$id)), 
+    alpha = 0
+  ) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(
+    title = "PCA Biplot: Интерактивный анализ",
+    color = "Статус 'Dead'"
+  ) +
+  theme_custom
+
+interactive_biplot <- ggplotly(
+  biplot, 
+  tooltip = "text"
+)
+
+n_cases <- length(unique(data_cleaned$dead))
+for (i in 1:n_cases) {
+  interactive_biplot$x$data[[i]]$name <- ifelse(i == 1, "Alive", "Dead")
+  interactive_biplot$x$data[[i]]$legendgroup <- i
+  interactive_biplot$x$data[[i + n_cases]]$name <- ifelse(i == 1, "Alive", "Dead")
+  interactive_biplot$x$data[[i + n_cases]]$legendgroup <- i
+  interactive_biplot$x$data[[i + n_cases]]$showlegend <- FALSE
+}
+
+interactive_biplot$x$layout$legend$title$text <- "Статус"
+
+interactive_biplot
+```
+
+## Задание 10 
+Интерпретация: PCA-анализ показал, что первые две компоненты объясняют 60.7% вариации данных. PC1 отражает физические параметры, такие как вес при рождении (bwt) и гестационный возраст (gest), а PC2 --- длительность госпитализации (hospstay). Эллипсы групп dead сильно перекрываются, что указывает на слабую способность PCA разделять выживших и умерших. Использование колонки dead для выводов некорректно, так как PCA не используется для выявления причинно-следственных связей или ассоциаций между переменными.
+
+
+## Задание 11
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+umap_config <- umap.defaults
+umap_config$n_neighbors <- 15
+umap_config$min_dist <- 0.1
+umap_config$metric <- "euclidean"
+
+umap_result <- umap(scaled_data, config = umap_config)
+
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data$dead <- data_cleaned$dead
+
+umap_plot <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = dead)) +
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "Проекция данных в 2D-пространство",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Статус 'Dead'"
+  ) +
+  theme_custom
+
+umap_plot
+```
+
+Интерпретация: PCA показывает глобальную структуру данных с учетом дисперсии, тогда как UMAP подчеркивает локальные зависимости. UMAP удобен для анализа сходства между наблюдениями, но не предназначен для изучения связей между переменными
+
+
+## Задание 12
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+umap_variations <- function(data, n_neighbors, min_dist, target_column) {
+  umap_data <- recipe(~., data = data) %>%
+    step_normalize(all_predictors()) %>%
+    step_umap(all_predictors(), num_comp = 2, neighbors = n_neighbors, min_dist = min_dist) %>%
+    prep() %>%
+    juice()
+  
+  umap_data <- umap_data %>%
+    mutate(dead = target_column)
+  
+  ggplot(umap_data, aes(UMAP1, UMAP2)) +
+    geom_point(aes(color = as.factor(dead)), alpha = 0.6, size = 2) +
+    scale_color_brewer(palette = "Set2") +
+    labs(
+      title = paste("n_neighbors =", n_neighbors, ", min_dist =", min_dist),
+      color = "Dead"
+    ) +
+    theme_custom
+}
+
+plot1 <- umap_variations(cont_data, n_neighbors = 10, min_dist = 0.01, target_column = data_cleaned$dead)
+plot2 <- umap_variations(cont_data, n_neighbors = 50, min_dist = 0.01, target_column = data_cleaned$dead)
+plot3 <- umap_variations(cont_data, n_neighbors = 10, min_dist = 0.1, target_column = data_cleaned$dead)
+plot4 <- umap_variations(cont_data, n_neighbors = 50, min_dist = 0.1, target_column = data_cleaned$dead)
+
+(plot1 | plot2) / (plot3 | plot4)
+```
+
+Интерпретация: При меньших значениях n_neighbors, алгоритм больше сосредотачивается на локальных связях между точками, что приводит к более разрозненным кластерам. При больших же значениях, алгоритм учитывает более глобальную структуру, сглаживая распределение данных.
+
+Меньшие значения min_dist способствуют более плотным кластерам, что подчеркивает локальную структуру данных. Более высокие значения приводят к более равномерному распределению точек, что снижает визуальную плотность кластеров.
+
+
+## Задание 13.1
+```{r, fig.width = 10, fig.height = 6, warning=FALSE}
+
+data_50perm <- cont_data %>%
+  mutate(bwt = case_when(
+    row_number() %in% sample(row_number(), size = n() * 0.5) ~ sample(bwt),
+    TRUE ~ bwt
+  ))
+
+data_100perm <- cont_data %>%
+  mutate(bwt = sample(bwt))
+
+cont_data_50perm <- data_50perm %>%
+  select(where(is.numeric))
+
+cont_data_100perm <- data_100perm %>%
+  select(where(is.numeric))  
+
+pca_50perm <- prcomp(cont_data_50perm, scale = TRUE)
+pca_100perm <- prcomp(cont_data_100perm, scale = TRUE)
+
+umap_50perm <- umap(scale(cont_data_50perm))
+umap_100perm <- umap(scale(cont_data_100perm))
+
+umap_data_50 <- as.data.frame(umap_50perm$layout)
+colnames(umap_data_50) <- c("UMAP1", "UMAP2")
+umap_data_50$dead <- data_cleaned$dead
+
+plot_umap_50 <- ggplot(umap_data_50, aes(x = UMAP1, y = UMAP2, color = dead)) +
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "50% Permuted Data",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Dead"
+  ) +
+  theme_custom
+
+umap_data_100 <- as.data.frame(umap_100perm$layout)
+colnames(umap_data_100) <- c("UMAP1", "UMAP2")
+umap_data_100$dead <- data_cleaned$dead
+
+plot_umap_100 <- ggplot(umap_data_100, aes(x = UMAP1, y = UMAP2, color = dead)) +
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "100% Permuted Data",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Dead"
+  ) +
+  theme_custom
+
+(plot_umap_50 | plot_umap_100)
+```
+
+
+## Задание 13.2
+```{r, fig.width = 10, fig.height = 6, warning=FALSE}
+
+biplot_50 <- ggbiplot(pca_50perm, 
+         scale = 0, 
+         alpha = 0.4, 
+         ellipse = TRUE, 
+         groups = data_cleaned$dead) +
+         labs(
+           title = "PCA (50% permutated)", 
+           fill = "dead", 
+           color = "dead"
+         ) +
+         theme_custom
+
+biplot_100 <- ggbiplot(pca_100perm, 
+         scale = 0, 
+         alpha = 0.4, 
+         ellipse = TRUE, 
+         groups = data_cleaned$dead) +
+         labs(
+           title = "PCA (100% permutated)", 
+           fill = "dead", 
+           color = "dead"
+         ) +
+         theme_custom
+(biplot_50 | biplot_100)
+
+```
+Интерпретация: Пермутация данных значительно влияет на результаты как PCA, так и UMAP. В PCA кумулятивный процент объяснённой вариации заметно уменьшается: при 50% пермутации структура данных частично сохраняется, но кластеризация ослаблена, а при 100% данные становятся случайными, и кластеры исчезают. UMAP, напротив, более устойчив к частичной пермутации, сохраняя локальные связи при 50% изменении данных, но при 100% пермутации распределение точек становится хаотичным, аналогично PCA. Визуализация UMAP лучше сохраняет локальную структуру при частичной пермутации, в то время как PCA демонстрирует потерю глобальной структуры уже на этапе 50% изменений.
+
+
+## Задание 14.1
+```{r}
+data_cleaned_imp <- data %>%
+  select(hospstay, lowph, pltct, bwt, gest, apg1, dead) %>%
+  mutate(across(
+    where(is.numeric),                       
+    ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)
+  )) %>%
+  mutate(
+    hospstay = as.numeric(hospstay),  
+    dead = as.factor(dead))
+
+numeric_imp <- data_cleaned_imp %>%
+  select(hospstay, lowph, pltct, bwt, gest, apg1)
+```
+
+
+## Задание 14.2
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+correlation_matrix_imput <- cor(numeric_imp, use = "complete.obs", method = "spearman")
+
+pheatmap(
+  correlation_matrix_imput, 
+  display_numbers = TRUE, 
+  color = colorRampPalette(c("lightblue", "white", "red"))(50), 
+  main = "Тепловая карта корреляционной матрицы imp"
+)
+
+correlation_matrix_imput %>%
+  network_plot(min_cor = .0,
+               legend ="full", 
+               colors = c("red", "white", "blue")) +
+  labs(title = "Сетевой график корреляций imp") +
+  theme_custom
+```
+
+## Задание 14.3
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+scaled_data_imput <- numeric_imp %>%
+  scale() %>%
+  as.data.frame() %>% 
+  filter(apply(., 1, var) > 0)
+
+
+distance_matrix <- dist(scaled_data_imput, method = "euclidean")
+
+hclust_model <- hclust(distance_matrix, method = "ward.D2")  
+
+k <- 4
+
+fviz_dend(
+  hclust_model, 
+  k = k,
+  rect = TRUE,
+  rect_border = "jco",
+  rect_fill = TRUE,
+  cex = 0.8,  
+  main = "Дендрограмма иерархической кластеризации imp"
+)
+```
+
+## Задание 14.4
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+pheatmap(
+  scaled_data_imput, 
+  clustering_distance_rows = "euclidean", 
+  clustering_distance_cols = "euclidean", 
+  clustering_method = "ward.D2",
+  color = colorRampPalette(c("blue", "white", "red"))(50),
+  main = "Heatmap с иерархической кластеризацией imp",
+  scale = "row",
+  display_numbers = FALSE,
+  fontsize_row = 10,
+  fontsize_col = 10
+)
+```
+Интерпретация: графики с импутацией выглядят более равномерными, тогда как графики оригинальных данных лучше отражают реальные зависимости. Оригинальный подход с удалением пропусков обеспечивает более точные и достоверные результаты, так как анализируется только полная информация. Однако он теряет часть данных, что может снижать репрезентативность при большом количестве пропусков. Импутация, напротив, сохраняет полный объем данных, что делает визуализации более полными, но может сглаживать вариативность и создавать ложные взаимосвязи.
+
+
+## Задание 15.1
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+data_for_pca_imp <- data_cleaned_imp %>%
+  select(-dead) %>%
+  scale() 
+
+pca_data_imp <- prcomp(data_for_pca_imp, scale = TRUE)
+
+fviz_eig(pca_data_imp, addlabels = TRUE, ylim = c(0, 50), main = "Доля объяснённой дисперсии imp")
+
+fviz_contrib(pca_data_imp, choice = "var", axes = 1, top = 24)
+fviz_contrib(pca_data_imp, choice = "var", axes = 2, top = 24)
+fviz_contrib(pca_data_imp, choice = "var", axes = 3, top = 24)
+
+fviz_pca_var(
+  pca_data_imp, 
+  col.var = "contrib",
+  repel = TRUE,
+  title = "График переменных PCA imp"
+)
+
+fviz_pca_ind(
+  pca_data_imp, 
+  geom = "point", 
+  col.ind = "cos2",
+  repel = TRUE,
+  title = "График наблюдений PCA imp"
+)
+```
+
+
+## Задание 15.2
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+ggbiplot(pca_data_imp, 
+         scale=0, 
+         groups = data_cleaned_imp$dead, 
+         ellipse = T,
+         alpha = 0.4) +
+  scale_colour_brewer(palette = "Set2") +
+  labs(
+    title = "PCA Biplot imp",
+  ) +
+  theme_custom
+```
+
+## Задание 15.3
+```{r, fig.width = 10, fig.height = 8, warning=FALSE}
+
+umap_result_imp <- umap(data_for_pca_imp, config = umap_config)
+
+umap_data_imp <- as.data.frame(umap_result_imp$layout)
+colnames(umap_data_imp) <- c("UMAP1", "UMAP2")
+umap_data_imp$dead <- data_cleaned_imp$dead
+
+ggplot(umap_data_imp, aes(x = UMAP1, y = UMAP2, color = dead)) +
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "Проекция данных в 2D-пространство imp",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Статус 'Dead'"
+  ) +
+  theme_custom
+```
+
+Интерпретация: Графики с импутацией демонстрируют смещение вклада переменных, где hospstay доминирует в третьей главной компоненте, объясняя более 95% ее вклада. Это приводит к изменению общей структуры данных, делая кластеры с умершими детьми более явными, особенно на PCA-биплоте. Это также проявляется в меньшем проценте объясненной дисперсии для первой компоненты (39.4% против 42.4% в оригинальных данных) и второй компоненты (17.2% против 18.9%), что указывает на более равномерное распределение дисперсии между компонентами при импутации. Визуализация UMAP показывает лучшее разделение групп, однако сглаживание из-за импутации делает общую структуру менее точной.
